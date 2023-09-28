@@ -3,6 +3,7 @@ use actix_web::{post, web, Error, HttpResponse};
 use serde::{Deserialize, Serialize};
 use postgres::{Client, NoTls};
 use geojson::{FeatureCollection, Feature};
+use std::io::Write;
 
 #[path = "../common/getpath.rs"]
 mod getpath;
@@ -16,11 +17,6 @@ use getbody::getbody;
 struct Req {
     conn: Conn,
     table: String,
-}
-
-#[derive(Serialize, Deserialize)]
-struct Res {
-    geojson: FeatureCollection,
 }
 
 #[post("/getgeojson")]
@@ -38,11 +34,20 @@ async fn getgeojson(payload: web::Payload) -> Result<HttpResponse, Error> {
         pg_getgeojson(path.as_str(), req.table.as_str())
     ).await.unwrap().unwrap();
 
-    let res = Res {
-        geojson: geojson_feature_collection,
-    };
+    let mut res = HttpResponse::Ok();
+    let mut body = Vec::new();
 
-    Ok(HttpResponse::Ok().json(res)) // <- send response
+    // Serializa a FeatureCollection em um vetor de bytes
+    let geojson_bytes = serde_json::to_vec(&geojson_feature_collection).map_err(|e| {
+        eprintln!("Erro ao serializar GeoJSON: {:?}", e);
+    }).unwrap();
+
+    // Define o Content-Type do response como application/json
+    res.content_type("application/octet-stream");
+
+    // Define o corpo da resposta como os bytes serializados
+    body.extend_from_slice(&geojson_bytes);
+    return Ok(res.body(body));
 }
 
 fn pg_getgeojson(path: &str, table: &str) -> Result<FeatureCollection, String> {
